@@ -110,8 +110,6 @@ end
 [weightMethod] = ...
     validateInputArguments(fun, x0, xdata, ydata, lb, ub, weightMethod, options);
 
-convergenceThreshold = 1e-6;
-
 varargout = cell(max(nargout, 1), 1);
 
 xdata = xdata(:);
@@ -119,35 +117,10 @@ ydata = ydata(:);
 
 [weightFunction, tuningConstant] = weightFunAndConstant(weightMethod);
 
-hasConverged     = false;
-previousEstimate = inf(size(x0));
-weights          = ones(size(xdata));
-iterationCounter = 1;
-while ~hasConverged && iterationCounter < options.MaxIter
-    %%% weighted LSQ
-    % define the cost function which will be squared and summed by lsqnonlin(). Due to the latter
-    % point, the weights have to be square-rooted here.
-    weightedFun = ...
-        @(params) (fun(params, xdata) - ydata) .* sqrt(weights);
-    
-    varargout{:} = lsqnonlin(weightedFun, x0, lb, ub, options);
-    
-    thisEstimate = varargout{1};
-    hasConverged = norm(thisEstimate - previousEstimate)^2 < convergenceThreshold;
-    
-    %%% update weights
-    residuals = ydata - fun(thisEstimate, xdata);
-    residuals = residuals(:);
-    
-    residualLeverages = leverage(residuals);
-    robustVar         = mad(residuals, 1);
-    
-    r = residuals ./ (tuningConstant * robustVar * sqrt(1 - residualLeverages));
-    
-    weights = weightFunction(r);
-    previousEstimate = thisEstimate;
-    iterationCounter = iterationCounter + 1;
-end
+weightedFun = ...
+    @(params) weightedResiduals( ydata - fun(params, xdata), weightFunction, tuningConstant);
+varargout{:} = lsqnonlin(weightedFun, x0, lb, ub, options);
+
 end
 
 
@@ -289,3 +262,19 @@ end
 
 
 % End of file: robustlsqcurvefit.m
+
+
+function residuals = weightedResiduals(residuals, weightFunction, tuningConstant)
+
+residuals = residuals(:);
+
+residualLeverages = leverage(residuals);
+robustVar         = mad(residuals, 1);
+
+r = residuals ./ (tuningConstant * robustVar * sqrt(1 - residualLeverages));
+
+weights = weightFunction(r);
+
+residuals = residuals .* sqrt(weights);
+
+end
